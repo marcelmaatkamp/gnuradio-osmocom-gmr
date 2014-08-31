@@ -1,0 +1,45 @@
+<?xml version="1.0"?>
+<block>
+ <name>RACH Detection core</name>
+ <key>rach_detect_core</key>
+ <category>GMR-1</category>
+ <import>from gnuradio import gmr1</import>
+ <make>gmr1.rach_detect_core($burst_offset, $burst_length, $scan_window, $len_tag_key)</make>
+ <param>
+   <name>Burst offset</name>
+   <key>burst_offset</key>
+   <type>int</type>
+ </param>
+ <param>
+   <name>Burst length</name>
+   <key>burst_length</key>
+   <type>int</type>
+ </param>
+ <param>
+   <name>Scan window</name>
+   <key>scan_window</key>
+   <type>int</type>
+ </param>
+ <param>
+   <name>Length Tag Name</name>
+   <key>len_tag_key</key>
+   <value>packet_len</value>
+   <type>string</type>
+ </param>
+ <sink>
+   <name>signal</name>
+   <type>complex</type>
+ </sink>
+ <sink>
+   <name>pwr_ref</name>
+   <type>float</type>
+ </sink>
+ <sink>
+   <name>corr</name>
+   <type>float</type>
+ </sink>
+ <source>
+   <name>burst</name>
+   <type>complex</type>
+ </source>
+</block>
