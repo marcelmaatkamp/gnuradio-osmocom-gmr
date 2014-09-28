@@ -90,7 +90,7 @@ gsmtap_sink_impl::send_pdu(pmt::pmt_t pdu)
 	/* Send to GSMTap */
 	gsmtap_sendmsg(this->d_gti, gmr1_gsmtap_makemsg(
 		GSMTAP_GMR1_RACH,
-		0, 0, 0, rach, len
+		0, 0, rach, len
 	));
 }
 
