@@ -110,7 +110,7 @@ set(GRC_BLOCKS_DIR      ${GR_PKG_DATA_DIR}/grc/blocks)
 ########################################################################
 # Find gnuradio build dependencies
 ########################################################################
-set(GR_REQUIRED_COMPONENTS RUNTIME BLOCKS FILTER)
+set(GR_REQUIRED_COMPONENTS RUNTIME BLOCKS FILTER FFT)
 find_package(Gnuradio "3.7.0")
 if(NOT GNURADIO_RUNTIME_FOUND)
     message(FATAL_ERROR "GnuRadio Runtime required to compile gr-gmr1")

@@ -13,6 +13,7 @@
 #include "gnuradio/gmr1/rach_demod.h"
 #include "gnuradio/gmr1/rach_detect.h"
 #include "gnuradio/gmr1/rach_detect_core.h"
+#include "gnuradio/gmr1/rach_detect_fft.h"
 %}
 
 %include "gnuradio/gmr1/gsmtap_sink.h"
@@ -26,3 +27,6 @@ GR_SWIG_BLOCK_MAGIC2(gmr1, rach_detect);
 
 %include "gnuradio/gmr1/rach_detect_core.h"
 GR_SWIG_BLOCK_MAGIC2(gmr1, rach_detect_core);
+
+%include "gnuradio/gmr1/rach_detect_fft.h"
+GR_SWIG_BLOCK_MAGIC2(gmr1, rach_detect_fft);

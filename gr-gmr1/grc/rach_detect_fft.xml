@@ -1,0 +1,16 @@
+<?xml version="1.0"?>
+<block>
+ <name>RACH FFT Detection</name>
+ <key>rach_detect_fft</key>
+ <category>GMR-1</category>
+ <import>from gnuradio import gmr1</import>
+ <make>gmr1.rach_detect_fft()</make>
+ <sink>
+   <name>in</name>
+   <type>complex</type>
+ </sink>
+ <source>
+   <name>burst</name>
+   <type>complex</type>
+ </source>
+</block>

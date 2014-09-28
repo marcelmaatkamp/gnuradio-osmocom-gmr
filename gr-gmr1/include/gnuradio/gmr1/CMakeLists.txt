@@ -26,5 +26,6 @@ install(FILES
     rach_demod.h
     rach_detect.h
     rach_detect_core.h
+    rach_detect_fft.h
     DESTINATION include/gnuradio/gmr1
 )

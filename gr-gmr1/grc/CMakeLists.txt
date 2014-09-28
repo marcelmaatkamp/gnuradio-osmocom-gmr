@@ -22,5 +22,6 @@ install(FILES
     rach_demod.xml
     rach_detect.xml
     rach_detect_core.xml
+    rach_detect_fft.xml
     DESTINATION share/gnuradio/grc/blocks
 )

@@ -46,6 +46,7 @@ list(APPEND gmr1_sources
 	rach_demod_impl.cc
 	rach_detect_impl.cc
 	rach_detect_core_impl.cc
+	rach_detect_fft_impl.cc
 )
 
 add_library(gnuradio-gmr1 SHARED ${gmr1_sources})
