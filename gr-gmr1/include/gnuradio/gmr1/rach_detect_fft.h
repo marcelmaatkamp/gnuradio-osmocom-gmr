@@ -37,7 +37,9 @@ namespace gr {
      public:
       typedef boost::shared_ptr<rach_detect_fft> sptr;
 
-      static sptr make();
+      static sptr make(int fft_size, int overlap_ratio, float threshold,
+                       int burst_length, int burst_offset, float freq_offset,
+                       const std::string& len_tag_key);
     };
 
   } // namespace gmr1

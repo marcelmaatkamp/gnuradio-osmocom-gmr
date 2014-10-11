@@ -24,6 +24,7 @@
 
 #include <gnuradio/gmr1/rach_detect_fft.h>
 
+#include <gnuradio/blocks/rotator.h>
 #include <gnuradio/fft/fft.h>
 
 namespace gr {
@@ -36,20 +37,51 @@ namespace gr {
     class rach_detect_fft_impl : public rach_detect_fft
     {
      private:
-      float d_threshold;
-      int d_overlap_ratio;
+
+      class peak
+      {
+       private:
+        uint64_t d_time[2];
+	int d_bin[2];
+
+       public:
+        peak(uint64_t time, int bin);
+        bool merge(uint64_t time, int bin);
+
+	bool expired(uint64_t time_limit) const;
+	uint64_t time() const;
+        float bin() const;
+      };
+
       int d_fft_size;
+      int d_overlap_ratio;
+      float d_threshold;
+      int d_burst_length;
+      int d_burst_offset;
+      float d_freq_offset;
+
+      pmt::pmt_t d_len_tag_key;
+      pmt::pmt_t d_burst_length_pmt;
+
       gr::fft::fft_complex *d_fft;
       gr_complex *d_buf;
       float *d_win;
       float *d_pwr;
 
-      int d_pos;
+      int d_in_pos;
+      std::vector<peak> d_peaks_l1;
+      std::vector<peak> d_peaks_l2;
+
+      int d_out_pos;
+      gr::blocks::rotator d_r;
+      std::vector<peak> d_peaks_pending;
 
       void peak_detect(uint64_t position);
 
      public:
-      rach_detect_fft_impl();
+      rach_detect_fft_impl(int fft_size, int overlap_ratio, float threshold,
+                           int burst_length, int burst_offset, float freq_offset,
+                           const std::string& len_tag_key);
       virtual ~rach_detect_fft_impl();
 
       int general_work(int noutput_items,

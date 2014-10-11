@@ -35,31 +35,46 @@ namespace gr {
   namespace gmr1 {
 
 rach_detect_fft::sptr
-rach_detect_fft::make()
+rach_detect_fft::make(
+	int fft_size, int overlap_ratio, float threshold,
+	int burst_length, int burst_offset, float freq_offset,
+	const std::string& len_tag_key)
 {
 	return gnuradio::get_initial_sptr(
-		new rach_detect_fft_impl()
+		new rach_detect_fft_impl(
+			fft_size, overlap_ratio, threshold,
+			burst_length, burst_offset, freq_offset,
+			len_tag_key
+		)
 	);
 }
 
-rach_detect_fft_impl::rach_detect_fft_impl()
+rach_detect_fft_impl::rach_detect_fft_impl(
+	int fft_size, int overlap_ratio, float threshold,
+	int burst_length, int burst_offset, float freq_offset,
+	const std::string& len_tag_key)
     : gr::block("rach_detect_fft",
                 io_signature::make(1, 1, sizeof(gr_complex)),
-                io_signature::make(1, 1, sizeof(gr_complex)))
+                io_signature::make(1, 1, sizeof(gr_complex))),
+      d_fft_size(fft_size), d_overlap_ratio(overlap_ratio),
+      d_threshold(threshold),
+      d_burst_length(burst_length), d_burst_offset(burst_offset),
+      d_len_tag_key(pmt::string_to_symbol(len_tag_key)),
+      d_burst_length_pmt(pmt::from_long(burst_length))
 {
-	this->d_threshold = 8.5f; // 7.5f;
-	this->d_overlap_ratio = 2;
-	this->d_fft_size = 512;
 	this->d_fft = new gr::fft::fft_complex(this->d_fft_size, true, 1);
 
 	this->d_buf = (gr_complex *) volk_malloc(this->d_fft_size * sizeof(gr_complex), 128);
 	this->d_win = (float *) volk_malloc(this->d_fft_size * sizeof(float), 128);
 	this->d_pwr = (float *) volk_malloc(this->d_fft_size * sizeof(float), 128);
 
-	this->d_pos = 0;
+	this->d_in_pos = 0;
+	this->d_out_pos = 0;
 
 	std::vector<float> win = gr::fft::window::blackmanharris(this->d_fft_size);
 	memcpy(this->d_win, &win[0], this->d_fft_size * sizeof(float));
+
+	this->set_history(burst_length + 1);
 }
 
 rach_detect_fft_impl::~rach_detect_fft_impl()
@@ -67,6 +82,7 @@ rach_detect_fft_impl::~rach_detect_fft_impl()
 	volk_free(this->d_pwr);
 	volk_free(this->d_win);
 	volk_free(this->d_buf);
+
 	delete this->d_fft;
 }
 
@@ -74,6 +90,7 @@ rach_detect_fft_impl::~rach_detect_fft_impl()
 void
 rach_detect_fft_impl::peak_detect(uint64_t position)
 {
+	std::vector<peak>::iterator it1, it2;
 	const int avg_hwin = 15;
 	const int avg_win = (avg_hwin * 2) + 1;
 	float sum;
@@ -87,9 +104,67 @@ rach_detect_fft_impl::peak_detect(uint64_t position)
 	/* Do a scan and compare with avg with peak */
 	for (i=avg_hwin; i<this->d_fft_size-avg_hwin; i++)
 	{
+		/* Is this a peak ? */
 		if (this->d_pwr[i] > (this->d_threshold * sum / (float)avg_win))
-			printf("(%lld, %d)\n", (long long)position, i);
+		{
+			bool merged = false;
+
+			/* Attempt merge with existing */
+			for (it1=this->d_peaks_l1.begin(); it1!=this->d_peaks_l1.end() && !merged; it1++)
+			{
+				merged |= it1->merge(position, i);
+			}
+
+			/* No match, insert new peak */
+			if (!merged)
+				this->d_peaks_l1.push_back(peak(position, i));
+		}
+
+		/* Update moving average */
 		sum += this->d_pwr[i+avg_hwin+1] - this->d_pwr[i-avg_hwin];
+	}
+
+	/* Scan for expired peak at Level 1 */
+	for (it1=this->d_peaks_l1.begin(); it1!=this->d_peaks_l1.end();)
+	{
+		/* Expired ? */
+		if (it1->expired(position - 20))
+		{
+			bool matched = false;
+
+			/* Scan Level 2 for a match at the right distance */
+			for (it2=this->d_peaks_l2.begin(); it2 != this->d_peaks_l2.end() && !matched; it2++)
+			{
+				if ((fabsf(it1->bin() - it2->bin()) < 1.0f) &&
+				    (it1->time() - it2->time() <= 4 * this->d_overlap_ratio) &&
+				    (it1->time() - it2->time() >= 2 * this->d_overlap_ratio))
+				{
+					matched = true;
+					this->d_peaks_pending.push_back(*it1);
+					this->d_peaks_l2.erase(it2);
+				}
+			}
+
+			/* No match, insert in Level 2 */
+			if (!matched)
+				this->d_peaks_l2.push_back(*it1);
+
+			/* Remove from Level 1 */
+			it1 = this->d_peaks_l1.erase(it1);
+		} else {
+			/* Just move on */
+			it1++;
+		}
+	}
+
+	/* Scan for expired peaks at Level 2 */
+	for (it1=this->d_peaks_l2.begin(); it1!=this->d_peaks_l2.end();)
+	{
+		if (it1->expired(position - 40)) {
+			it1 = this->d_peaks_l2.erase(it1);
+		} else {
+			it1++;
+		}
 	}
 }
 
@@ -101,7 +176,7 @@ rach_detect_fft_impl::general_work(
 	gr_vector_const_void_star &input_items,
 	gr_vector_void_star &output_items)
 {
-	int read;
+	int read, max_read;
 
 	/* Buffers pointer */
 	const gr_complex *sig_in = reinterpret_cast<const gr_complex *>(input_items[0]);
@@ -109,26 +184,84 @@ rach_detect_fft_impl::general_work(
 	gr_complex *fft_in  = this->d_fft->get_inbuf();
 	gr_complex *fft_out = this->d_fft->get_outbuf();
 
-	/* Process as much as we can */
-	for (read=0; read<noutput_items;)
+	/* Skip over history */
+	sig_in += this->history() - 1;
+
+	/* If there is pending output, process this first */
+	if (!this->d_peaks_pending.empty())
+	{
+		peak pk = this->d_peaks_pending.back();
+		int to_copy = this->d_burst_length - this->d_out_pos;
+
+		if (to_copy > noutput_items)
+			to_copy = noutput_items;
+
+		if (this->d_out_pos == 0)
+		{
+			float phase_inc;
+
+			printf("(%lld, %d)\n", pk.time(), (int)pk.bin());
+
+			/* Configure the rotator */
+			phase_inc = - (2.0f * (float)M_PI / this->d_fft_size) * (
+				fmodf(
+					pk.bin() + (float)(this->d_fft_size / 2),
+					(float)this->d_fft_size
+				) - (float)(this->d_fft_size / 2)
+			);
+
+			phase_inc += this->d_freq_offset;
+
+			this->d_r.set_phase_incr( exp(gr_complex(0, phase_inc)) );
+
+			/* Burst start */
+			add_item_tag(
+				0,
+				this->nitems_written(0),
+				this->d_len_tag_key,
+				this->d_burst_length_pmt
+			);
+		}
+
+		this->d_r.rotateN(
+			burst_out,
+			sig_in + this->d_out_pos - this->history() + 1,
+			to_copy
+		);
+
+		this->d_out_pos += to_copy;
+
+		if (this->d_out_pos == this->d_burst_length)
+		{
+			this->d_peaks_pending.pop_back();
+			this->d_out_pos = 0;
+		}
+
+		return to_copy;
+	}
+
+	/* Process as much input as we can */
+	max_read = ninput_items[0] - this->history() + 1;
+
+	for (read=0; read<max_read;)
 	{
 		int n_adv = this->d_fft_size / this->d_overlap_ratio;
 		int n_reuse = this->d_fft_size - n_adv;
 		int n_fill;
 
 		/* Fill our internal buffer */
-		n_fill = this->d_fft_size - this->d_pos;
-		if (n_fill > noutput_items - read)
-			n_fill = noutput_items - read;
+		n_fill = this->d_fft_size - this->d_in_pos;
+		if (n_fill > max_read - read)
+			n_fill = max_read - read;
 
-		memcpy(this->d_buf + this->d_pos,
+		memcpy(this->d_buf + this->d_in_pos,
 		       sig_in + read,
 		       n_fill * sizeof(gr_complex));
 
 		read += n_fill;
-		this->d_pos += n_fill;
+		this->d_in_pos += n_fill;
 
-		if (this->d_pos != this->d_fft_size)
+		if (this->d_in_pos != this->d_fft_size)
 			break;
 
 		/* Apply window */
@@ -147,16 +280,20 @@ rach_detect_fft_impl::general_work(
 
 		/* Run the peak detection */
 		this->peak_detect(
-			this->nitems_read(0) + read - (this->d_fft_size / 2)
+			(this->nitems_read(0) + read) / (this->d_fft_size / this->d_overlap_ratio)
 		);
 
 		/* Handle overlap */
 		if (this->d_overlap_ratio > 1) {
 			memmove(this->d_buf, this->d_buf + n_adv, n_reuse * sizeof(gr_complex));
-			this->d_pos = n_reuse;
+			this->d_in_pos = n_reuse;
 		} else {
-			this->d_pos = 0;
+			this->d_in_pos = 0;
 		}
+
+		/* If we have anything pending, don't continue */
+		if (!this->d_peaks_pending.empty())
+			break;
 	}
 
 	/* We read some stuff */
@@ -164,6 +301,63 @@ rach_detect_fft_impl::general_work(
 
 	return 0;
 }
+
+
+rach_detect_fft_impl::peak::peak(uint64_t time, int bin)
+{
+	this->d_time[0] = this->d_time[1] = time;
+	this->d_bin[0]  = this->d_bin[1]  = bin;
+}
+
+
+bool
+rach_detect_fft_impl::peak::merge(uint64_t time, int bin)
+{
+	/* Check if mergeable */
+	if (bin > (this->d_bin[1] + 1))
+		return false;
+
+	if (bin < (this->d_bin[0] - 1))
+		return false;
+
+	if (time > (this->d_time[1] + 1))
+		return false;
+
+	if (time < (this->d_time[0] - 1))
+		return false;
+
+	/* Do the merge */
+	if (bin > this->d_bin[1])
+		this->d_bin[1] = bin;
+	else if (bin < this->d_bin[0])
+		this->d_bin[0] = bin;
+
+	if (time > this->d_time[1])
+		this->d_time[1] = time;
+	else if (time < this->d_time[0])
+		this->d_time[0] = time;
+
+	return true;
+}
+
+bool
+rach_detect_fft_impl::peak::expired(uint64_t time_limit) const
+{
+	return time_limit > this->d_time[1];
+}
+
+uint64_t
+rach_detect_fft_impl::peak::time() const
+{
+	return this->d_time[0] + ((this->d_time[1] - this->d_time[0]) >> 1);
+}
+
+float
+rach_detect_fft_impl::peak::bin() const
+{
+	return (float)this->d_bin[0] + ((float)(this->d_bin[1] - this->d_bin[0]) / 2.0f);
+}
+
 
   } // namespace gmr1
 } // namespace gr
