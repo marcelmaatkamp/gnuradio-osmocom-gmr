@@ -40,7 +40,7 @@ namespace gr {
       int d_etoa;
 
       float estimate(struct osmo_cxvec *burst, int etoa, float *cw_freq);
-      int process(struct osmo_cxvec *burst, float freq_corr, uint8_t *rach);
+      int process(struct osmo_cxvec *burst, float freq_corr, uint8_t *rach, uint8_t *sb_mask);
 
      public:
       rach_demod_impl(int sps, int etoa,

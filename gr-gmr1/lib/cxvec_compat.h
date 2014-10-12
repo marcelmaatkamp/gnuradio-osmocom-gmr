@@ -21,8 +21,8 @@
 #ifndef INCLUDED_GR_GMR1_CXVEC_COMPAT_H
 #define INCLUDED_GR_GMR1_CXVEC_COMPAT_H
 
+#include <complex.h>
 #include <gnuradio/types.h>
-
 
 #define GCC_VERSION (		\
 	__GNUC__ * 10000 +	\

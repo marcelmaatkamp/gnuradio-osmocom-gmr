@@ -59,6 +59,7 @@ rach_detect_fft_impl::rach_detect_fft_impl(
       d_fft_size(fft_size), d_overlap_ratio(overlap_ratio),
       d_threshold(threshold),
       d_burst_length(burst_length), d_burst_offset(burst_offset),
+      d_freq_tag_key(pmt::string_to_symbol("freq")),
       d_len_tag_key(pmt::string_to_symbol(len_tag_key)),
       d_burst_length_pmt(pmt::from_long(burst_length))
 {
@@ -200,8 +201,6 @@ rach_detect_fft_impl::general_work(
 		{
 			float phase_inc;
 
-			printf("(%lld, %d)\n", pk.time(), (int)pk.bin());
-
 			/* Configure the rotator */
 			phase_inc = - (2.0f * (float)M_PI / this->d_fft_size) * (
 				fmodf(
@@ -220,6 +219,14 @@ rach_detect_fft_impl::general_work(
 				this->nitems_written(0),
 				this->d_len_tag_key,
 				this->d_burst_length_pmt
+			);
+
+			/* Burst angular frequency */
+			add_item_tag(
+				0,
+				this->nitems_written(0),
+				this->d_freq_tag_key,
+				pmt::from_double(phase_inc)
 			);
 		}
 

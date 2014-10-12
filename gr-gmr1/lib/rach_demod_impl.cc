@@ -131,7 +131,7 @@ rach_demod_impl::estimate(struct osmo_cxvec *burst, int etoa, float *cw_freq)
 }
 
 int
-rach_demod_impl::process(struct osmo_cxvec *burst, float freq_corr, uint8_t *rach)
+rach_demod_impl::process(struct osmo_cxvec *burst, float freq_corr, uint8_t *rach, uint8_t *sb_mask)
 {
 	sbit_t ebits[494];
 	int sync_id;
@@ -147,8 +147,10 @@ rach_demod_impl::process(struct osmo_cxvec *burst, float freq_corr, uint8_t *rac
 	);
 
 	/* Decode */
-	rv = gmr1_rach_decode(rach, ebits, 0x00, &conv, crc);
-	printf("rv: %d | crc: %d %d | conv: %d\n", rv, crc[0], crc[1], conv);
+	rv = gmr1_rach_decode(rach, ebits, 0x00, &conv, crc, sb_mask);
+
+	/* Debug */
+	//printf("rv: %d | crc: %d %d | conv: %d | sb_mask: %02hhx\n", rv, crc[0], crc[1], conv, *sb_mask);
 
 	return crc[1];
 }
@@ -162,7 +164,7 @@ rach_demod_impl::work(int noutput_items,
 {
 	const gr_complex *in = reinterpret_cast<const gr_complex *>(input_items[0]);
 	struct osmo_cxvec _burst, *burst = &_burst;
-	uint8_t rach[18];
+	uint8_t rach[18], sb_mask;
 	float peak_corr, peak_cw_freq;
 	int ws, peak_etoa, etoa;
 	int rv;
@@ -187,8 +189,6 @@ rach_demod_impl::work(int noutput_items,
 		}
 	}
 
-	printf("%d %f\n", peak_etoa, peak_cw_freq);
-
 	/* Narrow down the window to 6 symbols around position we found */
 	if (peak_etoa < (3 * this->d_sps))
 		peak_etoa = 3 * this->d_sps;
@@ -199,7 +199,7 @@ rach_demod_impl::work(int noutput_items,
 	burst->len   = (gmr1_rach_burst.len + 6) * this->d_sps;
 
 	/* Attempt demodulation and decoding */
-	rv = this->process(burst, -((d_sps * peak_cw_freq) - (M_PIf / 4.0f)), rach);
+	rv = this->process(burst, -((d_sps * peak_cw_freq) - (M_PIf / 4.0f)), rach, &sb_mask);
 
 	/* Send as PDU */
 	if (!rv)
@@ -218,6 +218,12 @@ rach_demod_impl::work(int noutput_items,
 		for (tags_itr = tags.begin(); tags_itr != tags.end(); tags_itr++) {
 			pdu_meta = dict_add(pdu_meta, (*tags_itr).key, (*tags_itr).value);
 		}
+
+		/* Add the guessed SB_Mask */
+		pdu_meta = dict_add(pdu_meta,
+			pmt::string_to_symbol("sb_mask"),
+			pmt::from_long(sb_mask)
+		);
 
 		/* Build vector with the data bytes */
 		pdu_vector = blocks::pdu::make_pdu_vector(blocks::pdu::byte_t, rach, 18);
